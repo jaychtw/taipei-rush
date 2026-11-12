@@ -17,7 +17,9 @@ jobs:
           done
       - name: Set the arcade poster title and prepare WebP
         run: |
-          /usr/bin/python3 - <<'PY'
+          python3 -m venv /tmp/cover-env
+          /tmp/cover-env/bin/pip install --quiet Pillow==11.3.0
+          /tmp/cover-env/bin/python - <<'PY'
           from PIL import Image, ImageDraw, ImageFont
           import base64, hashlib
           im=Image.new('RGB',(1200,675),'#163539')
