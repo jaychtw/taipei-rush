@@ -1,0 +1,87 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#182b2d"><title>Scooter 1945 · Taipei Rush</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#172a2c;color:#f8e5bb;font-family:"Arial Narrow","PingFang TC",system-ui,sans-serif}main{max-width:1000px;margin:auto;min-height:100svh;display:grid;grid-template-columns:minmax(260px,1fr) minmax(300px,460px);gap:clamp(16px,4vw,60px);align-items:center;padding:16px}.poster{background:linear-gradient(0deg,#142628 0%,transparent 40%),url(poster.jpg) center/cover;border:2px solid #d7b580;aspect-ratio:.68;position:relative;box-shadow:7px 7px #0d1b1e}.brand{position:absolute;bottom:4%;left:6%;right:4%}.brand b{font:italic 900 clamp(32px,5.6vw,76px)/.9 Impact,system-ui;color:#ffe8b7;letter-spacing:-.06em;text-shadow:3px 3px #982e1f}.brand span{display:block;font:900 18px monospace;color:#ffc26c;letter-spacing:.18em;margin:8px 0}button{background:#263d40;color:#ffebc5;border:1px solid #97a495;border-radius:4px;min-height:40px;padding:6px 12px;font:700 14px system-ui;cursor:pointer}button:focus-visible{outline:3px solid #ffc460;outline-offset:2px}.top,.bar{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:7px 0}.top strong{font:800 15px monospace;color:#f8c071}.bar button{flex:1}.arena{position:relative;aspect-ratio:360/530;overflow:hidden;border:2px solid #c9b28b;box-shadow:4px 4px #0e2022}canvas{width:100%;height:100%;display:block;touch-action:none}.overlay{position:absolute;inset:0;background:linear-gradient(0deg,#102225fa 2%,#13272bf0 31%,#13272b00 74%),url(poster.jpg) center 48%/cover;display:flex;justify-content:flex-end;align-items:flex-start;flex-direction:column;padding:7%;gap:9px}.overlay.active{background:#13272bdd;justify-content:center}.overlay h1{font:italic 900 clamp(30px,4vw,51px)/.95 Impact,system-ui;letter-spacing:-.04em;margin:0;color:#ffdd9e}.overlay p{font-size:15px;line-height:1.45;margin:0}.primary{background:#ffbf67;color:#203235;border:0}.hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;pointer-events:none;background:linear-gradient(#0b2027dd,transparent);padding:9px 10px 14px;font:800 14px monospace;color:#fff1d3;text-shadow:1px 1px #111}.hud span:last-child{color:#ffbc77}#status{font-size:13px;margin:6px 0;color:#d2d7bd} [hidden]{display:none!important}@media(max-width:700px){main{display:block;max-width:min(100vw,calc((100svh - 122px)*.679 + 16px));min-width:min(300px,100vw);padding:4px 8px}.poster{display:none}.top,.bar{padding:4px 0}.top strong{font-size:13px}}@media(min-width:701px){.cab{width:min(100%,calc((100svh - 145px)*.679));min-width:270px;justify-self:center}}
+</style><main><aside class="poster" aria-hidden="true"><div class="brand"><span>臺北疾走</span><b>SCOOTER<br>1945</b></div></aside><section class="cab"><div class="top"><strong>TAIPEI RUSH</strong><div><button id="audio"></button> <button id="lang"></button></div></div><div class="arena"><canvas width="360" height="530" aria-label="Taipei traffic arcade"></canvas><div class="hud"><span id="points"></span><span id="health"></span></div><section class="overlay" id="overlay"><h1 id="heading"></h1><p id="desc"></p><button class="primary" id="start"></button></section></div><div class="bar"><button id="horn"></button><button id="pause"></button></div><p id="status" aria-live="polite"></p></section></main><script>
+'use strict';
+const $=id=>document.getElementById(id), canvas=document.querySelector('canvas'), ctx=canvas.getContext('2d');
+const clamp=(n,a,b)=>Math.max(a,Math.min(n,b));
+function read(key,fallback){try{return localStorage.getItem('rush-'+key)??fallback}catch{return fallback}}
+function save(key,value){try{localStorage.setItem('rush-'+key,value)}catch{}}
+let zh=read('lang','en')==='zh', audible=read('sound','off')==='on',best=Number(read('best',0))||0;
+const t=(en,tw)=>zh?tw:en;
+let mode='title',player,traffic=[],shots=[],hazards=[],sparks=[],elapsed=0,nextWave=0,wave=0,score=0,bossStarted=false,hornTimer=0,blast=0,fireTimer=0,road=0,pointer=null,synth;
+const keys=new Set(),directions={arrowleft:'left',a:'left',arrowright:'right',d:'right',arrowup:'up',w:'up',arrowdown:'down',s:'down'};
+const specs={scooter:[12,19,2,100],taxi:[17,29,4,180],truck:[20,31,6,240],bus:[21,43,8,320],boss:[35,48,64,2400]};
+function tone(f,len=.1,type='triangle',at=0){if(!audible||!synth)return;let start=synth.currentTime+at,o=synth.createOscillator(),g=synth.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(.035,start);g.gain.exponentialRampToValueAtTime(.001,start+len);o.connect(g).connect(synth.destination);o.start(start);o.stop(start+len)}
+function audioStart(){if(audible){try{synth??=new (window.AudioContext||window.webkitAudioContext)();synth.resume()}catch{audible=false}}}
+function cleanInput(){pointer=null;keys.clear()}
+function change(m){mode=m;cleanInput();if(m==='win'||m==='over'){if(score>best){best=score;save('best',best)}}labels();if(m!=='play')$('start').focus({preventScroll:true})}
+function reset(){traffic=[];shots=[];hazards=[];sparks=[];player={x:180,y:443,hp:3,shield:1.4};score=0;elapsed=0;wave=0;nextWave=.6;bossStarted=false;hornTimer=0;fireTimer=0;blast=0;audioStart();change('play')}
+function labels(){document.documentElement.lang=zh?'zh-Hant':'en';$('audio').textContent=audible?t('Sound on','音效開'):t('Sound off','音效關');$('lang').textContent=zh?'English':'繁中';$('overlay').hidden=mode==='play';$('overlay').classList.toggle('active',mode!=='title');$('heading').textContent=({title:t('Scooter 1945','機車 1945'),pause:t('Ride paused','暫停'),over:t('End of the road','挑戰結束'),win:t('Breakfast secured!','早餐到手！')})[mode]||'';$('desc').textContent=mode==='title'?t('Ride through the morning rush. Your headlamp fires automatically. Save your horn for a tight spot.','穿過臺北早晨的車潮。車燈會自動發射光束，遇到包圍時再按喇叭。'): mode==='pause'?t('Your place in traffic is saved.','車陣停在原地，準備好就繼續。'):t('Score ','分數 ')+score+'  ·  '+t('Best ','最高 ')+best;$('start').textContent=mode==='pause'?t('Resume ride','繼續騎乘'):mode==='title'?t('Start your engine →','發動引擎 →'):t('Ride again →','再騎一次 →');$('pause').disabled=mode!=='play';$('pause').textContent=t('Pause · P','暫停 · P');$('status').textContent=mode==='play'&&bossStarted?t('Collection truck! Dodge its amber fans and keep your headlamp on target.','垃圾車來了！避開扇形光點，持續用車燈瞄準。'):t('Arrows / WASD or drag to steer. Space or Horn clears nearby traffic.','方向鍵、WASD 或拖曳移動。空白鍵或喇叭可清除附近威脅。');hud()}
+function hud(){const set=(id,v)=>{if($(id).textContent!==v)$(id).textContent=v};set('points',String(score).padStart(6,'0'));set('health','♥ '+(player?.hp??3)+'/3');set('horn',hornTimer>0?t('Horn · ','喇叭 · ')+Math.ceil(hornTimer)+'s':t('Horn · ready','喇叭 · 就緒'));$('horn').disabled=mode!=='play'||hornTimer>0}
+function burst(x,y,color,n=9){for(let i=0;i<n;i++){const a=i*2.4;sparks.push({x,y,vx:Math.cos(a)*(28+i*4),vy:Math.sin(a)*(28+i*4),life:.35,color})}}
+function tag(v,n){if(v.leaving)return;v.hp-=n;v.flash=.09;if(v.hp>0)return;score+=specs[v.kind][3];burst(v.x,v.y,'#f8d879');v.leaving=true;v.exit=v.x<180?-1:1;tone(560);if(v.kind==='boss'){tone(730,.22,'sine',.12);change('win')}}
+function horn(){if(mode!=='play'||hornTimer>0)return;hornTimer=7;blast=.35;tone(210,.25,'sawtooth');hazards=hazards.filter(b=>Math.hypot(b.x-player.x,b.y-player.y)>132);for(let v of traffic)if(Math.hypot(v.x-player.x,v.y-player.y)<146)tag(v,v.kind==='boss'?5:12);player.shield=Math.max(player.shield,.6);hud()}
+function hurt(){if(player.shield>0)return;player.hp--;player.shield=1.65;burst(player.x,player.y,'#ff845e');tone(92,.22);if(!player.hp)change('over')}
+function spawn(kind,x,y,speed,phase=0){traffic.push({kind,x,y,base:x,age:0,speed,phase,hp:specs[kind][2],flash:0,cool:kind==='boss'?2:2.1+phase*.25,leaving:false})}
+function formation(){const side=wave%2?1:-1,pattern=wave%5;
+ if(pattern===0){for(let i=-1;i<=1;i++)spawn('scooter',180+i*52,-35-Math.abs(i)*27,94,i*.6)}
+ if(pattern===1){spawn('taxi',side===1?80:280,-45,78,side);spawn('scooter',180,-125,107,1)}
+ if(pattern===2){spawn('truck',side===1?110:250,-45,65);spawn('scooter',side===1?150:210,-112,105,1.5)}
+ if(pattern===3){spawn('bus',side===1?78:280,-65,57,side);spawn('taxi',180,-115,82,-side)}
+ if(pattern===4){for(let i=0;i<4;i++)spawn('scooter',72+i*67,-32-i*20,105,i*.7)}
+ wave++}
+function signal(v){if(v.kind==='boss'){for(let i=-2;i<=2;i++)hazards.push({x:v.x,y:v.y+42,vx:Math.sin(i*.3)*135,vy:Math.cos(i*.3)*135})}else{const a=Math.atan2(player.y-v.y,player.x-v.x);hazards.push({x:v.x,y:v.y+18,vx:Math.cos(a)*112,vy:Math.sin(a)*112})}}
+function tick(dt){if(mode!=='play')return;elapsed+=dt;road+=dt*116;hornTimer=Math.max(0,hornTimer-dt);blast=Math.max(0,blast-dt);player.shield=Math.max(0,player.shield-dt);
+ let dx=Number(keys.has('right'))-Number(keys.has('left')),dy=Number(keys.has('down'))-Number(keys.has('up'));
+ if(pointer){dx=(pointer.goalX-player.x)/12;dy=(pointer.goalY-player.y)/12}let scale=232*dt/Math.max(1,Math.hypot(dx,dy));player.x=clamp(player.x+dx*scale,36,324);player.y=clamp(player.y+dy*scale,58,503);
+ if(!bossStarted&&elapsed>=44){bossStarted=true;spawn('boss',180,-60,0);[523,659,784,659].forEach((f,i)=>tone(f,.22,'sine',i*.18));labels()}
+ if(!bossStarted&&elapsed>=nextWave){formation();nextWave+=3.05}
+ fireTimer-=dt;if(fireTimer<=0){fireTimer+=.19;for(let side of [-1,1])shots.push({x:player.x+side*8,y:player.y-16})}
+ for(let v of traffic){v.age+=dt;v.flash=Math.max(0,v.flash-dt);if(v.leaving){v.x+=v.exit*215*dt;v.y-=50*dt;continue}v.y+=v.speed*dt;
+ if(v.kind==='boss'){v.y=Math.min(87,v.y+78*dt);v.x=180+Math.sin(v.age*.8)*94}
+ if(v.kind==='scooter')v.x=v.base+Math.sin(v.age*2+v.phase)*22;
+ if(v.kind==='taxi')v.x=v.base+(v.phase||1)*Math.min(90,Math.max(0,v.age-1.2)*74);
+ if(v.kind==='bus')v.x=v.base+(v.phase||1)*(1-Math.cos(Math.min(Math.PI,v.age*.8)))*24;
+ if(v.kind!=='scooter'&&v.y>30&&v.y<player.y-48){v.cool-=dt;if(v.cool<=0){signal(v);v.cool=v.kind==='boss'?(v.hp<30?1.05:1.55):2.6}}
+ const [w,h]=specs[v.kind];if(Math.abs(player.x-v.x)<w+6&&Math.abs(player.y-v.y)<h+7)hurt();if(mode!=='play')return}
+ for(let b of shots){b.y-=410*dt;for(let v of traffic){const [w,h]=specs[v.kind];if(!v.leaving&&Math.abs(b.x-v.x)<w+2&&Math.abs(b.y-v.y)<h+3){b.y=-100;tag(v,1);break}}if(mode!=='play')return}
+ for(let b of hazards){b.x+=b.vx*dt;b.y+=b.vy*dt;if(Math.hypot(b.x-player.x,b.y-player.y)<10){b.y=600;hurt();if(mode!=='play')return}}
+ for(let s of sparks){s.x+=s.vx*dt;s.y+=s.vy*dt;s.life-=dt}
+ shots=shots.filter(b=>b.y>-15);traffic=traffic.filter(v=>v.y<600&&v.x>-65&&v.x<425);hazards=hazards.filter(b=>b.y<550&&b.x>-12&&b.x<372&&b.y>-10);sparks=sparks.filter(s=>s.life>0);hud()}
+const R=(x,y,w,h,col)=>{ctx.fillStyle=col;ctx.fillRect(x,y,w,h)};
+function poly(pts,col){ctx.beginPath();pts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();ctx.fillStyle=col;ctx.fill()}
+function disc(x,y,a,b,col){ctx.beginPath();ctx.ellipse(x,y,a,b,0,0,Math.PI*2);ctx.fillStyle=col;ctx.fill()}
+function txt(str,x,y,size,col){ctx.textAlign='center';ctx.font='bold '+size+'px sans-serif';ctx.fillStyle=col;ctx.fillText(str,x,y)}
+const navy='#17343a',ivory='#f4dfaa', glass='#315a65';
+function background(){R(0,0,360,530,'#435253');const dist=road%276;
+ for(let k=-1;k<=2;k++){let y=k*276+dist;R(28,y,304,4,'#52605d');for(let x of [102,180,258])for(let i=0;i<4;i++)R(x,y+i*68,2,23,x===180?'#ccb674':'#bdc1aa');for(let i=0;i<10;i++)R(37+i*29,y+8,17,12,'#d7d3b9');R(34,y+30,292,2,'#b2b4a1');
+ for(let j=0;j<36;j++){let x=35+(j*67)%290;R(x,y+(j*39)%276,2+j%6,1,'#56605d')}
+ for(let side of [0,1]){ctx.save();ctx.translate(side?360:0,y);ctx.scale(side?-1:1,1);R(0,0,32,276,'#96a28b');R(30,0,3,276,'#d57453');R(0,0,22,91,'#687e70');R(0,7,17,69,'#c4c1a1');for(let i=0;i<6;i++)R(1,11+i*10,15,3,'#83978a');R(0,97,24,59,'#ddb476');for(let i=0;i<8;i++)R(0,98+i*7,24,4,'#a94c3c');R(0,165,25,82,'#334d51');R(2,169,20,66,'#719a91');for(let j=0;j<3;j++)R(6,175+j*19,12,13,'#3e6666');R(18,231,9,28,'#bd6045');ctx.restore()}
+ }for(let x of [31,329])R(x,0,1,530,'#fac6a1')}
+function bike(x,y,isPlayer){ctx.save();ctx.translate(x,y);const shell=isPlayer?'#df5640':'#5abca6';disc(3,4,12,21,'#1c33397a');R(-3,-20,6,38,navy);disc(0,6,9,15,navy);disc(0,6,7,13,shell);R(-6,14,12,3,'#ff9971');poly([[-9,-12],[-6,-20],[6,-20],[9,-12],[5,-6],[-5,-6]],shell);R(-5,-19,10,3,'#fff2ba');R(-12,-12,24,3,navy);for(let sign of [-1,1]){R(sign*12-1,-16,2,5,ivory);disc(sign*13,-17,3,2,glass)}disc(0,0,7,9,'#24383c');disc(0,-2,8,7,isPlayer?'#27948c':'#ad7355');disc(0,-7,6,7,navy);disc(0,-8,5,5.7,isPlayer?ivory:'#ddbd79');R(-3,-11,2,4,'#fff0d1');ctx.restore()}
+function vehicle(v){if(v.kind==='scooter'){bike(v.x,v.y,false);return}let [w,h]=specs[v.kind];ctx.save();ctx.translate(v.x,v.y);if(v.leaving)ctx.rotate(v.exit*.47);
+ let body=v.kind==='taxi'?'#e9b544':v.kind==='truck'?'#5993af':v.kind==='bus'?'#579f83':'#e8a741';disc(3,5,w+3,h,'#17313688');
+ poly([[-w+5,-h], [w-5,-h],[w,-h+8],[w,h-7],[w-5,h],[-w+5,h],[-w,h-6],[-w,-h+7]],navy);
+ R(-w+3,-h+6,2*w-6,2*h-12,v.flash>0?ivory:body);R(-w+5,-h+7,2*w-10,10,glass);poly([[-w+6,-h+7],[-w+13,-h+7],[-w+9,-h+15],[-w+5,-h+15]],'#8bb5b2');
+ R(-w+5,h-6,6,3,'#fa7453');R(w-11,h-6,6,3,'#fa7453');R(-w+5,-h+3,7,3,'#fff0c4');R(w-12,-h+3,7,3,'#fff0c4');
+ if(v.kind==='taxi'){R(-9,-5,18,8,ivory);txt('TAXI',0,1,6,navy);R(-w+6,h-16,2*w-12,7,glass);if(v.age<1.35&&Math.floor(v.age*10)%2)disc(v.phase>0?w:-w,8,4,4,'#ffe585')}
+ if(v.kind==='truck'){R(-w+5,-5,w*2-10,h+1,'#294c63');for(let a=-w+7;a<w-4;a+=5)R(a,-3,2,h-4,'#668aa0')}
+ if(v.kind==='bus'){for(let a=-12;a<29;a+=11){R(-w+4,a,3,7,glass);R(w-7,a,3,7,glass)}R(-8,-9,16,19,'#c0d2b7');R(-8,14,16,12,'#95b6a6')}
+ if(v.kind==='boss'){R(-w+5,-20,2*w-10,44,'#508d77');for(let a=-24;a<=24;a+=9)R(a,-17,4,35,'#679e81');R(-w+5,26,w*2-10,13,'#d7a449');for(let a=-25;a<=22;a+=12)poly([[a,27],[a+6,27],[a+1,38],[a-5,38]],navy);txt('清潔隊',0,5,14,'#fff0bb')}
+ ctx.restore()}
+function paint(){const w=Math.round(canvas.clientWidth*Math.min(devicePixelRatio||1,2)),h=Math.round(canvas.clientHeight*Math.min(devicePixelRatio||1,2));if(w&&h&&(w!==canvas.width||h!==canvas.height)){canvas.width=w;canvas.height=h}ctx.setTransform(canvas.width/360,0,0,canvas.height/530,0,0);background();
+ for(const v of traffic)vehicle(v);
+ for(const b of shots){R(b.x-2,b.y-6,4,13,'#eebe64');R(b.x-1,b.y-6,2,9,'#fff5c9')}
+ for(const b of hazards){disc(b.x,b.y,6,6,navy);disc(b.x,b.y,4.5,4.5,'#ff8960');disc(b.x,b.y,1.8,1.8,ivory)}
+ if(player){if(player.shield>0){ctx.beginPath();ctx.arc(player.x,player.y,22,0,2*Math.PI);ctx.strokeStyle='#9cf0d9';ctx.lineWidth=1.5;ctx.stroke()}bike(player.x,player.y,true);if(blast){ctx.beginPath();ctx.arc(player.x,player.y,Math.max(2,(.36-blast)*380),0,2*Math.PI);ctx.strokeStyle=ivory;ctx.lineWidth=2;ctx.stroke()}}
+ for(const s of sparks)R(s.x,s.y,3,3,s.color);
+ const boss=traffic.find(v=>v.kind==='boss'&&!v.leaving);if(boss){R(59,33,242,7,navy);R(61,35,238*boss.hp/64,3,'#f4b75f')} }
+let last=0;function frame(ms){let dt=Math.min(.06,(ms-last)/1000);last=ms;if(mode==='play'){while(dt>.00001){let n=Math.min(dt,1/60);tick(n);dt-=n}paint()}requestAnimationFrame(frame)}
+$('start').onclick=()=>{if(mode==='pause'){change('play');audioStart()}else reset()};$('horn').onclick=horn;$('pause').onclick=()=>change('pause');$('audio').onclick=()=>{audible=!audible;audioStart();tone(480);save('sound',audible?'on':'off');labels()};$('lang').onclick=()=>{zh=!zh;save('lang',zh?'zh':'en');labels()};
+window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if((k==='p'||k==='escape')&&!e.repeat){if(mode==='play')change('pause');else if(mode==='pause')change('play')}if(mode==='play'&&directions[k]){e.preventDefault();keys.add(directions[k])}if(mode==='play'&&k===' '){e.preventDefault();if(!e.repeat)horn()}});
+window.addEventListener('keyup',e=>keys.delete(directions[e.key.toLowerCase()]));const freeze=()=>{if(mode==='play')change('pause')};window.addEventListener('blur',freeze);document.addEventListener('visibilitychange',()=>{if(document.hidden)freeze()});
+canvas.onpointerdown=e=>{if(mode!=='play'||pointer)return;canvas.setPointerCapture(e.pointerId);pointer={id:e.pointerId,sx:e.clientX,sy:e.clientY,px:player.x,py:player.y,goalX:player.x,goalY:player.y}};
+canvas.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId)return;const b=canvas.getBoundingClientRect();pointer.goalX=clamp(pointer.px+(e.clientX-pointer.sx)*360/b.width*1.25,36,324);pointer.goalY=clamp(pointer.py+(e.clientY-pointer.sy)*530/b.height*1.25,58,503)};
+canvas.onlostpointercapture=canvas.onpointercancel=canvas.onpointerup=e=>{if(pointer?.id===e.pointerId)pointer=null};labels();requestAnimationFrame(frame);
+</script></html>
