@@ -1,0 +1,55 @@
+name: Prepare Taipei Rush catalog artwork
+on:
+  push:
+    branches: [art/taipei-rush-card]
+permissions:
+  contents: read
+jobs:
+  artwork:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the published game
+        run: |
+          for asset in index.html poster.jpg; do
+            curl -fsSL --retry 3 "https://jaychtw.github.io/taipei-rush/$asset?rev=2b31dd9" -o /tmp/live
+            cmp "$asset" /tmp/live
+          done
+      - name: Set the arcade poster title and prepare WebP
+        run: |
+          /usr/bin/python3 - <<'PY'
+          from PIL import Image, ImageDraw, ImageFont
+          import base64, hashlib
+          im=Image.new('RGB',(1200,675),'#163539')
+          art=Image.open('poster.jpg').convert('RGB')
+          art.thumbnail((840,1260))
+          art=art.resize((758,1137),Image.Resampling.LANCZOS)
+          im.paste(art,(442,-368))
+          d=ImageDraw.Draw(im)
+          d.polygon([(0,0),(585,0),(461,675),(0,675)],fill='#163539')
+          d.polygon([(577,0),(592,0),(468,675),(453,675)],fill='#e6a55a')
+          d.polygon([(603,0),(609,0),(485,675),(479,675)],fill='#193b3d')
+          for k in range(9):
+              d.polygon([(0,65+k*11),(174-k*12,65+k*11),(168-k*12,68+k*11),(0,68+k*11)],fill='#38716a')
+          fontfile='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+          def letters(word,y,width,height,col):
+              font=ImageFont.truetype(fontfile,180)
+              m=Image.new('L',(1800,300)); pen=ImageDraw.Draw(m)
+              pen.text((10,5),word,font=font,fill=255,stroke_width=1)
+              m=m.crop(m.getbbox()).resize((width,height),Image.Resampling.LANCZOS)
+              im.paste('#0e272b',(40,y+5,40+width,y+5+height),m)
+              im.paste(col,(35,y,35+width,y+height),m)
+          letters('SCOOTER',188,455,86,'#f8e1ae')
+          letters('1945',284,448,159,'#f8e1ae')
+          d.line((36,468,465,468),fill='#e5b275',width=3)
+          letters('TAIPEI RUSH',493,410,53,'#ffac64')
+          im.save('taipei-rush.webp','WEBP',quality=85,method=6)
+          data=open('taipei-rush.webp','rb').read()
+          print('COVER_SHA '+hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest())
+          enc=base64.b64encode(data).decode()
+          for i in range(0,len(enc),1000): print('COVER_BYTES '+enc[i:i+1000])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: taipei-rush-titled-cover
+          path: taipei-rush.webp
